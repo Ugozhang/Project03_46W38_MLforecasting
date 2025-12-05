@@ -35,10 +35,13 @@ class ForecastApp:
         self.last_scores: dict | None = None
         self.last_model_name: str | None = None
 
+        # model checkboxes state
+        self.model_flags: dict[str, tk.BooleanVar] = {}
+
         # build GUI
         self.root = tk.Tk()
         self.root.title("Wind Power Timeseries Viewer")
-        self.root.geometry("520x650")
+        self.root.geometry("520x800")
 
         self.build_file_frame()
         self.build_var_frame()
@@ -214,34 +217,7 @@ class ForecastApp:
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
-    # ---------- Feature helpers ----------
-
-    @staticmethod
-    def _add_hub_height_windspeed(df: pd.DataFrame, hub_height: float) -> pd.DataFrame:
-        """
-        Compute hub-height wind speed from 10m and 100m using a power-law profile.
-        Adds a new column 'windspeed_hub'.
-        """
-        df_hub = df.copy()
-        if "windspeed_10m" not in df_hub.columns or "windspeed_100m" not in df_hub.columns:
-            return df_hub
-
-        u10 = df_hub["windspeed_10m"].astype(float)
-        u100 = df_hub["windspeed_100m"].astype(float)
-
-        valid = (u10 > 0) & (u100 > 0)
-
-        alpha = np.empty(len(df_hub))
-        alpha[:] = np.nan
-        alpha[valid] = np.log(u100[valid] / u10[valid]) / np.log(100.0 / 10.0)
-        alpha = np.clip(alpha, -5, 5)
-
-        u_hub = np.empty(len(df_hub))
-        u_hub[:] = np.nan
-        u_hub[valid] = u10[valid] * (hub_height / 10.0) ** alpha[valid]
-
-        df_hub["windspeed_hub"] = u_hub
-        return df_hub
+    # ---------- ML training handlers ----------
 
     def on_train_button_clicked(self):
         """Validate input and start background training thread."""
@@ -256,15 +232,19 @@ class ForecastApp:
         if not filename:
             messagebox.showerror("Error", "Please select a CSV file first.")
             return
-        model_name = self.model_var.get()
-        if not model_name:
-            messagebox.showerror("Error", "Please select a model.")
+
+        # collect models from checkboxes
+        selected_models: list[str] = [
+            name for name, var in self.model_flags.items() if var.get()
+        ]
+        if not selected_models:
+            messagebox.showerror("Error", "Please select at least one model to train.")
             return
-
-        hub_str = self.hub_height_var.get().strip()
-
+        
         # show status & start progress
-        self.train_status_var.set(f"Training {model_name}...")
+        self.train_status_var.set(
+            "Training models:\n  " + "\n  ".join(selected_models)
+        )
         self.train_progress.start(10)
         self.btn_train.config(state="disabled")
         self.root.update_idletasks()
@@ -272,27 +252,18 @@ class ForecastApp:
         # start background job
         thread = threading.Thread(
             target=self._train_model_worker,
-            args=(filename, split_ratio, model_name, hub_str),
+            args=(filename, split_ratio, selected_models),
             daemon=True,
         )
         thread.start()
 
-    def _train_model_worker(self, filename: str, split_ratio: float, model_name: str, hub_str: str):
+    def _train_model_worker(self, filename: str, split_ratio: float, model_names: list[str]):
         """Run ML training in a background thread, then hand results back to the GUI thread."""
+        print(model_names)
         try:
             # load & transform
             df_raw = self.load_data(filename)
             df_ML = data.transform_features(df_raw)
-
-            # optional hub-height feature
-            hub_height = None
-            if hub_str:
-                try:
-                    hub_height = float(hub_str)
-                except ValueError:
-                    hub_height = None
-            if hub_height is not None:
-                df_ML = self._add_hub_height_windspeed(df_ML, hub_height)
 
             # split
             split_idx = int(len(df_ML) * split_ratio)
@@ -307,31 +278,38 @@ class ForecastApp:
                 "delta_ws",
                 "hour_sin", "hour_cos", "doy_sin", "doy_cos",
             ]
-            if "windspeed_hub" in df_ML.columns:
-                feature_cols.append("windspeed_hub")
 
-            target_col = "Power"
+            target_col = "Power_t_plus_1"
 
-            # select model trainer
-            trainer_func = MODEL_TRAINERS.get(model_name)
-            if trainer_func is None:
-                raise ValueError(f"Unknown model: {model_name}")
+            all_scores = {}
+            last_model = None
 
-            model, scores = trainer_func(train_df, test_df, feature_cols, target_col)
+            for model_name in model_names:
+                trainer_func = MODEL_TRAINERS.get(model_name)
+                if trainer_func is None:
+                    raise ValueError(f"Unknown model: {model_name}")
 
-            # store last model info (for feature importance)
-            self.last_model = model
+                model, scores, y_true, y_pred = trainer_func(
+                    train_df, test_df, feature_cols, target_col
+                )
+
+                all_scores[model_name] = scores
+                last_model = model
+
+            # store meta info
+            self.last_model = last_model
             self.last_feature_cols = feature_cols
-            self.last_scores = scores
-            self.last_model_name = model_name
+            self.last_scores = all_scores
+            self.last_model_name = ", ".join(model_names)
 
-            # pass result back to GUI thread
-            self.root.after(0, self._on_train_done, split_ratio, model_name, scores)
+            # back to GUI thread
+            self.root.after(0, self._on_train_done, split_ratio, all_scores)
 
         except Exception as e:
             self.root.after(0, self._on_train_error, str(e))
 
-    def _on_train_done(self, split_ratio: float, model_name: str, scores: dict):
+
+    def _on_train_done(self, split_ratio: float, all_scores: dict[str, dict]):
         """Update GUI after training finished successfully."""
         self.train_progress.stop()
         self.btn_train.config(state="normal")
@@ -339,13 +317,21 @@ class ForecastApp:
         train_pct = int(split_ratio * 100)
         test_pct = 100 - train_pct
 
-        self.train_status_var.set(
-            f"{model_name} done.\n"
-            f"Train/Test split: {train_pct}% / {test_pct}%\n"
-            f"MSE : {scores['mse']:.3f}\n"
-            f"MAE : {scores['mae']:.3f}\n"
-            f"RMSE: {scores['rmse']:.3f}"
-        )
+        # Begin formatted table
+        lines = []
+        lines.append(f"Train/Test split: {train_pct}% / {test_pct}%\n")
+        lines.append(f"{'Model':22s} {'MSE':>10s} {'MAE':>10s} {'RMSE':>10s}")
+        lines.append("-" * 55)
+
+        for model_name, scores in all_scores.items():
+            lines.append(
+                f"{model_name:22s} "
+                f"{scores['mse']:10.3f} "
+                f"{scores['mae']:10.3f} "
+                f"{scores['rmse']:10.3f}"
+            )
+
+        self.train_status_var.set("\n".join(lines))
 
     def _on_train_error(self, message: str):
         """Update GUI after training failed."""
@@ -445,28 +431,25 @@ class ForecastApp:
         ttk.Entry(frame, width=6, textvariable=self.split_ratio_var).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         # Model selection
-        ttk.Label(frame, text="Model:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.model_var = tk.StringVar()
-        self.combo_model = ttk.Combobox(
-            frame, width=25, textvariable=self.model_var, state="readonly",
-            values=list(MODEL_TRAINERS.keys())
-        )
-        self.combo_model.grid(row=1, column=1, padx=5, pady=5, sticky="w")
-        if MODEL_TRAINERS:
-            self.combo_model.set(list(MODEL_TRAINERS.keys())[0])
+        ttk.Label(frame, text="Models to train:").grid(row=1, column=0, padx=5, pady=5, sticky="nw")
         
-        # Optional hub height
-        ttk.Label(frame, text="Hub height (m, optional):").grid(
-            row=2, column=0, padx=5, pady=5, sticky="w"
-        )
-        self.hub_height_var = tk.StringVar()
-        ttk.Entry(frame, width = 8, textvariable=self.hub_height_var).grid(
-            row=2, column=1, padx=5, pady=5, sticky="w"
-        )
+        chk_frame = ttk.Frame(frame)
+        chk_frame.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+
+        self.model_flags = {}
+        
+        for i, model_name in enumerate(MODEL_TRAINERS.keys()):
+            var = tk.BooleanVar()
+            self.model_flags[model_name] = var
+            ttk.Checkbutton(
+                chk_frame,
+                text=model_name,
+                variable=var,
+            ).grid(row=i, column=0, sticky="w")
 
         # Train button + progress bar
         self.btn_train = ttk.Button(
-            frame, text="Train model",
+            frame, text="Train selected models",
             command=self.on_train_button_clicked,
         )
         self.btn_train.grid(row=3, column=0, columnspan=2, pady=10)
@@ -477,7 +460,8 @@ class ForecastApp:
 
         # Status text
         self.train_status_var = tk.StringVar(value="No model trained yet.")
-        ttk.Label(frame, textvariable=self.train_status_var, justify="left").grid(
+        ttk.Label(frame, textvariable=self.train_status_var, justify="left", font=("Courier New", 10),
+        ).grid(
             row=5, column=0, columnspan=2, sticky="w", padx=5, pady=5
         )
 

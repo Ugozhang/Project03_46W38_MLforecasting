@@ -58,8 +58,14 @@ def transform_features(df: pd.DataFrame) -> pd.DataFrame:
     # ------------------------------------------------------
     # 3. Vertical wind shear ()
     # ------------------------------------------------------
-    if "windspeed_10m" in df.columns and "windspeed_100m" in df.columns:
+    if "windspeed_10m" in df_ml.columns and "windspeed_100m" in df_ml.columns:
         df_ml["delta_ws"] = df_ml["windspeed_100m"] - df_ml["windspeed_10m"]
+
+    # ------------------------------------------------------
+    # 4. One hour ahead shift ()
+    # ------------------------------------------------------
+    df_ml["Power_t_plus_1"] = df_ml["Power"].shift(-1)
+    df_ml = df_ml.iloc[:-1].copy()
 
     return df_ml
 
