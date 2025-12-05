@@ -1,15 +1,16 @@
 # GUI
+import numpy as np
+import pandas as pd
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkcalendar import Calendar
 from datetime import datetime, time
 from pathlib import Path
-import pandas as pd
+import threading
 
-from .models import train_random_forest as rf_train
+from .models import MODEL_TRAINERS
 from . import forecaster_plot as fc_plt
 from . import data
-
 
 class ForecastApp:
     """
@@ -27,6 +28,12 @@ class ForecastApp:
         # time limits for calendar
         self.time_min = None
         self.time_max = None
+
+        # last trained model & feature cols (for feature importance plot)
+        self.last_model = None
+        self.last_feature_cols: list[str] | None = None
+        self.last_scores: dict | None = None
+        self.last_model_name: str | None = None
 
         # build GUI
         self.root = tk.Tk()
@@ -99,7 +106,7 @@ class ForecastApp:
 
         ttk.Button(top, text="OK", command=on_ok).pack(pady=5)
 
-    #
+    # Folder path
     def select_folder(self):
         """Choose folder path manually, refresh CSV list"""
         new_dir = filedialog.askdirectory(
@@ -122,7 +129,7 @@ class ForecastApp:
         else:
             self.label_range_var.set("Time range: ")
 
-    # ---------- GUI handlers ----------
+    # ---------- Calender GUI handlers ----------
 
     def on_file_selected(self, event=None):
         filename = self.combo_file.get()
@@ -160,6 +167,7 @@ class ForecastApp:
         except Exception as e:
             messagebox.showerror("Error loading file", str(e))
 
+    # --- plot ---
     def run_plot(self):
         filename = self.combo_file.get()
         varname = self.combo_var.get()
@@ -206,9 +214,37 @@ class ForecastApp:
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+    # ---------- Feature helpers ----------
 
+    @staticmethod
+    def _add_hub_height_windspeed(df: pd.DataFrame, hub_height: float) -> pd.DataFrame:
+        """
+        Compute hub-height wind speed from 10m and 100m using a power-law profile.
+        Adds a new column 'windspeed_hub'.
+        """
+        df_hub = df.copy()
+        if "windspeed_10m" not in df_hub.columns or "windspeed_100m" not in df_hub.columns:
+            return df_hub
 
-    def on_train_random_forest(self):
+        u10 = df_hub["windspeed_10m"].astype(float)
+        u100 = df_hub["windspeed_100m"].astype(float)
+
+        valid = (u10 > 0) & (u100 > 0)
+
+        alpha = np.empty(len(df_hub))
+        alpha[:] = np.nan
+        alpha[valid] = np.log(u100[valid] / u10[valid]) / np.log(100.0 / 10.0)
+        alpha = np.clip(alpha, -5, 5)
+
+        u_hub = np.empty(len(df_hub))
+        u_hub[:] = np.nan
+        u_hub[valid] = u10[valid] * (hub_height / 10.0) ** alpha[valid]
+
+        df_hub["windspeed_hub"] = u_hub
+        return df_hub
+
+    def on_train_button_clicked(self):
+        """Validate input and start background training thread."""
         try:
             split_ratio = float(self.split_ratio_var.get())
             if not (0 < split_ratio < 1):
@@ -216,44 +252,107 @@ class ForecastApp:
         except ValueError:
             messagebox.showerror("Error", "Split ratio must be between 0~1.")
             return
-
         filename = self.combo_file.get()
         if not filename:
             messagebox.showerror("Error", "Please select a CSV file first.")
             return
+        model_name = self.model_var.get()
+        if not model_name:
+            messagebox.showerror("Error", "Please select a model.")
+            return
 
-        df_ML = data.transform_features(self.load_data(filename))
+        hub_str = self.hub_height_var.get().strip()
 
-        # show progressing text
-        self.train_status_var.set("Training Random Forest...")
+        # show status & start progress
+        self.train_status_var.set(f"Training {model_name}...")
+        self.train_progress.start(10)
+        self.btn_train.config(state="disabled")
         self.root.update_idletasks()
 
-        # split
-        split_idx = int(len(df_ML) * split_ratio)
-        train_df = df_ML.iloc[:split_idx].copy()
-        test_df = df_ML.iloc[split_idx:].copy()
+        # start background job
+        thread = threading.Thread(
+            target=self._train_model_worker,
+            args=(filename, split_ratio, model_name, hub_str),
+            daemon=True,
+        )
+        thread.start()
 
-        feature_cols = [
-            "temperature_2m", "relativehumidity_2m", "dewpoint_2m",
-            "windgusts_10m",
-            "u_10m", "v_10m", "u_100m", "v_100m",
-            "delta_ws",
-            "hour_sin", "hour_cos", "doy_sin", "doy_cos",
-        ]
-        target_col = "Power"
+    def _train_model_worker(self, filename: str, split_ratio: float, model_name: str, hub_str: str):
+        """Run ML training in a background thread, then hand results back to the GUI thread."""
+        try:
+            # load & transform
+            df_raw = self.load_data(filename)
+            df_ML = data.transform_features(df_raw)
 
-        model, scores = rf_train(train_df, test_df, feature_cols, target_col)
+            # optional hub-height feature
+            hub_height = None
+            if hub_str:
+                try:
+                    hub_height = float(hub_str)
+                except ValueError:
+                    hub_height = None
+            if hub_height is not None:
+                df_ML = self._add_hub_height_windspeed(df_ML, hub_height)
+
+            # split
+            split_idx = int(len(df_ML) * split_ratio)
+            train_df = df_ML.iloc[:split_idx].copy()
+            test_df = df_ML.iloc[split_idx:].copy()
+
+            # feature columns
+            feature_cols = [
+                "temperature_2m", "relativehumidity_2m", "dewpoint_2m",
+                "windgusts_10m",
+                "u_10m", "v_10m", "u_100m", "v_100m",
+                "delta_ws",
+                "hour_sin", "hour_cos", "doy_sin", "doy_cos",
+            ]
+            if "windspeed_hub" in df_ML.columns:
+                feature_cols.append("windspeed_hub")
+
+            target_col = "Power"
+
+            # select model trainer
+            trainer_func = MODEL_TRAINERS.get(model_name)
+            if trainer_func is None:
+                raise ValueError(f"Unknown model: {model_name}")
+
+            model, scores = trainer_func(train_df, test_df, feature_cols, target_col)
+
+            # store last model info (for feature importance)
+            self.last_model = model
+            self.last_feature_cols = feature_cols
+            self.last_scores = scores
+            self.last_model_name = model_name
+
+            # pass result back to GUI thread
+            self.root.after(0, self._on_train_done, split_ratio, model_name, scores)
+
+        except Exception as e:
+            self.root.after(0, self._on_train_error, str(e))
+
+    def _on_train_done(self, split_ratio: float, model_name: str, scores: dict):
+        """Update GUI after training finished successfully."""
+        self.train_progress.stop()
+        self.btn_train.config(state="normal")
 
         train_pct = int(split_ratio * 100)
         test_pct = 100 - train_pct
 
         self.train_status_var.set(
-            f"Random Forest done.\n"
+            f"{model_name} done.\n"
             f"Train/Test split: {train_pct}% / {test_pct}%\n"
             f"MSE : {scores['mse']:.3f}\n"
             f"MAE : {scores['mae']:.3f}\n"
             f"RMSE: {scores['rmse']:.3f}"
         )
+
+    def _on_train_error(self, message: str):
+        """Update GUI after training failed."""
+        self.train_progress.stop()
+        self.btn_train.config(state="normal")
+        self.train_status_var.set("Training failed.")
+        messagebox.showerror("Training error", message)
 
     # ---------- GUI Builders ----------
 
@@ -340,19 +439,46 @@ class ForecastApp:
         frame = ttk.LabelFrame(self.root, text="4. Train Machine Learning Model")
         frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(frame, text="Train/Test split ratio (0~1):").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Label(frame, text="Train/Test split ratio (0~1):").grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
         self.split_ratio_var = tk.StringVar(value="0.8")
-        ttk.Entry(frame, width=6, textvariable=self.split_ratio_var).grid(row=0, column=1, padx=5)
+        ttk.Entry(frame, width=6, textvariable=self.split_ratio_var).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        ttk.Button(
-            frame, text="Train Random Forest",
-            command=self.on_train_random_forest
-        ).grid(row=1, column=0, columnspan=2, pady=10)
+        # Model selection
+        ttk.Label(frame, text="Model:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.model_var = tk.StringVar()
+        self.combo_model = ttk.Combobox(
+            frame, width=25, textvariable=self.model_var, state="readonly",
+            values=list(MODEL_TRAINERS.keys())
+        )
+        self.combo_model.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        if MODEL_TRAINERS:
+            self.combo_model.set(list(MODEL_TRAINERS.keys())[0])
+        
+        # Optional hub height
+        ttk.Label(frame, text="Hub height (m, optional):").grid(
+            row=2, column=0, padx=5, pady=5, sticky="w"
+        )
+        self.hub_height_var = tk.StringVar()
+        ttk.Entry(frame, width = 8, textvariable=self.hub_height_var).grid(
+            row=2, column=1, padx=5, pady=5, sticky="w"
+        )
 
+        # Train button + progress bar
+        self.btn_train = ttk.Button(
+            frame, text="Train model",
+            command=self.on_train_button_clicked,
+        )
+        self.btn_train.grid(row=3, column=0, columnspan=2, pady=10)
+
+        # bar
+        self.train_progress = ttk.Progressbar(frame, mode="indeterminate")
+        self.train_progress.grid(row=4, column=0, columnspan=2, sticky="we")
+
+        # Status text
         self.train_status_var = tk.StringVar(value="No model trained yet.")
         ttk.Label(frame, textvariable=self.train_status_var, justify="left").grid(
-            row=2, column=0, columnspan=2, sticky="w", padx=5, pady=5
+            row=5, column=0, columnspan=2, sticky="w", padx=5, pady=5
         )
 
 
