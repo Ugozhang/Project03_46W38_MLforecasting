@@ -38,6 +38,11 @@ class ForecastApp:
         # model checkboxes state
         self.model_flags: dict[str, tk.BooleanVar] = {}
 
+        # storage for predictions (for plotting)
+        self.test_time: np.ndarray | None = None
+        self.y_true_dict: dict[str, np.ndarray] = {}
+        self.y_pred_dict: dict[str, np.ndarray] = {}
+
         # build GUI
         self.root = tk.Tk()
         self.root.title("Wind Power Timeseries Viewer")
@@ -284,6 +289,16 @@ class ForecastApp:
             all_scores = {}
             last_model = None
 
+            # store test timestamps (Time kept in df_ML)
+            if "Time" in test_df.columns:
+                self.test_time = test_df["Time"].copy()
+            else:
+                self.test_time = None
+
+            # reset stored predictions
+            self.y_true_dict = {}
+            self.y_pred_dict = {}
+
             for model_name in model_names:
                 trainer_func = MODEL_TRAINERS.get(model_name)
                 if trainer_func is None:
@@ -295,6 +310,10 @@ class ForecastApp:
 
                 all_scores[model_name] = scores
                 last_model = model
+
+                # store predictions for later plotting
+                self.y_true_dict[model_name] = y_true
+                self.y_pred_dict[model_name] = y_pred
 
             # store meta info
             self.last_model = last_model
@@ -339,6 +358,74 @@ class ForecastApp:
         self.btn_train.config(state="normal")
         self.train_status_var.set("Training failed.")
         messagebox.showerror("Training error", message)
+
+    # forecast plot
+    def plot_forecast_vs_real(self):
+        """
+        Plot predicted one-hour-ahead power output against the real measured power
+        for the selected time window and one of the trained models.
+
+        Requirements covered:
+        - Persistence model one-hour-ahead prediction
+        - ML model one-hour-ahead prediction (SVM, Random Forest, MLP, etc.)
+        - Plot predicted vs real time series for a selected site and period
+          (GUI start/end date & time are used as the period)
+        """
+
+        # Check if any model has been trained
+        if self.last_scores is None or not self.y_true_dict:
+            messagebox.showerror("Error", "Please train at least one model first.")
+            return
+
+        if self.test_time is None:
+            messagebox.showerror("Error", "No stored test timestamps available.")
+            return
+
+        time_arr = self.test_time
+
+        # Prefer SVM if it was trained; otherwise take the first available model
+        preferred = "Support Vector Machine"
+        if preferred in self.y_true_dict:
+            model_name = preferred
+        else:
+            model_name = next(iter(self.y_true_dict.keys()))
+
+        y_true = self.y_true_dict[model_name]
+        y_pred = self.y_pred_dict[model_name]
+
+        # Convert GUI start/end date + time into real datetimes
+        try:
+            start_date = datetime.strptime(self.start_date_var.get(), "%Y-%m-%d").date()
+            end_date = datetime.strptime(self.end_date_var.get(), "%Y-%m-%d").date()
+
+            sh, sm = int(self.entry_start_hour.get()), int(self.entry_start_min.get())
+            eh, em = int(self.entry_end_hour.get()), int(self.entry_end_min.get())
+
+            start_dt = datetime.combine(start_date, time(sh, sm))
+            end_dt = datetime.combine(end_date, time(eh, em))
+
+            if start_dt > end_dt:
+                raise ValueError("Start time cannot be after end time.")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Invalid date/time: {e}")
+            return
+
+        # Slice the period selected from GUI
+        mask = (time_arr >= start_dt) & (time_arr <= end_dt)
+        if not mask.any():
+            messagebox.showerror("Error", "No test data in the selected time window.")
+            return
+
+        # Call plotting function
+        fc_plt.forecast_vs_real_plot(
+            time_arr[mask],
+            y_true[mask],
+            y_pred[mask],
+            title=f"{model_name} Forecast vs Real\n{start_dt} → {end_dt}",
+        )
+
+
 
     # ---------- GUI Builders ----------
 
@@ -464,6 +551,13 @@ class ForecastApp:
         ).grid(
             row=5, column=0, columnspan=2, sticky="w", padx=5, pady=5
         )
+
+        # plot forecast
+        ttk.Button(
+            frame,
+            text="Plot forecast vs real",
+            command=self.plot_forecast_vs_real
+        ).grid(row=6, column=0, columnspan=2, pady=10)
 
 
 # ------- Public function called by main.py -------
