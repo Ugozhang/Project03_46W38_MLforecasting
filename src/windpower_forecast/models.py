@@ -108,3 +108,29 @@ MODEL_TRAINERS = {
     "Support Vector Machine": train_svm,
     "Neural Network (MLP)": train_mlp,
     }
+
+# Predict
+def predict_model(
+    model,
+    df_features: pd.DataFrame,
+    feature_cols: list[str],
+) -> np.ndarray:
+    """
+    Generic helper to compute model predictions on a feature dataframe.
+
+    Parameters
+    ----------
+    model : trained sklearn regressor
+        e.g. RandomForestRegressor, SVR, MLPRegressor.
+    df_features : pd.DataFrame
+        DataFrame that already contains all feature_cols.
+    feature_cols : list of str
+        Names of the feature columns used for training.
+
+    Returns
+    -------
+    y_pred : np.ndarray
+        Model predictions for the rows in df_features.
+    """
+    X = df_features[feature_cols].values
+    return model.predict(X)

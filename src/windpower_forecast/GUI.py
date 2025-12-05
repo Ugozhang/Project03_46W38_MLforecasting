@@ -8,7 +8,7 @@ from datetime import datetime, time
 from pathlib import Path
 import threading
 
-from .models import MODEL_TRAINERS
+from .models import MODEL_TRAINERS, predict_model
 from . import forecaster_plot as fc_plt
 from . import data
 
@@ -38,10 +38,8 @@ class ForecastApp:
         # model checkboxes state
         self.model_flags: dict[str, tk.BooleanVar] = {}
 
-        # storage for predictions (for plotting)
-        self.test_time: np.ndarray | None = None
-        self.y_true_dict: dict[str, np.ndarray] = {}
-        self.y_pred_dict: dict[str, np.ndarray] = {}
+        # store trained models by name
+        self.trained_models: dict[str, object] = {}
 
         # build GUI
         self.root = tk.Tk()
@@ -289,16 +287,6 @@ class ForecastApp:
             all_scores = {}
             last_model = None
 
-            # store test timestamps (Time kept in df_ML)
-            if "Time" in test_df.columns:
-                self.test_time = test_df["Time"].copy()
-            else:
-                self.test_time = None
-
-            # reset stored predictions
-            self.y_true_dict = {}
-            self.y_pred_dict = {}
-
             for model_name in model_names:
                 trainer_func = MODEL_TRAINERS.get(model_name)
                 if trainer_func is None:
@@ -311,9 +299,9 @@ class ForecastApp:
                 all_scores[model_name] = scores
                 last_model = model
 
-                # store predictions for later plotting
-                self.y_true_dict[model_name] = y_true
-                self.y_pred_dict[model_name] = y_pred
+                # store trained model (for later predictions on any period)
+                self.trained_models[model_name] = model
+
 
             # store meta info
             self.last_model = last_model
@@ -359,41 +347,46 @@ class ForecastApp:
         self.train_status_var.set("Training failed.")
         messagebox.showerror("Training error", message)
 
-    # forecast plot
     def plot_forecast_vs_real(self):
         """
         Plot predicted one-hour-ahead power output against the real measured power
         for the selected time window and one of the trained models.
 
-        Requirements covered:
-        - Persistence model one-hour-ahead prediction
-        - ML model one-hour-ahead prediction (SVM, Random Forest, MLP, etc.)
-        - Plot predicted vs real time series for a selected site and period
-          (GUI start/end date & time are used as the period)
+        - Site is defined by the selected CSV file.
+        - Period is defined by Step 3 (start/end date & time).
+        - Model is chosen among trained models (prefer SVM if available).
         """
 
-        # Check if any model has been trained
-        if self.last_scores is None or not self.y_true_dict:
+        # 1. 確認有訓練過至少一個模型
+        if not self.trained_models:
             messagebox.showerror("Error", "Please train at least one model first.")
             return
 
-        if self.test_time is None:
-            messagebox.showerror("Error", "No stored test timestamps available.")
-            return
-
-        time_arr = self.test_time
-
-        # Prefer SVM if it was trained; otherwise take the first available model
+        # 2. 選一個要畫的模型：優先 SVM，否則拿第一個
         preferred = "Support Vector Machine"
-        if preferred in self.y_true_dict:
+        if preferred in self.trained_models:
             model_name = preferred
         else:
-            model_name = next(iter(self.y_true_dict.keys()))
+            model_name = next(iter(self.trained_models.keys()))
 
-        y_true = self.y_true_dict[model_name]
-        y_pred = self.y_pred_dict[model_name]
+        # 3. 讀資料 + 特徵轉換
+        filename = self.combo_file.get()
+        if not filename:
+            messagebox.showerror("Error", "Please select a CSV file.")
+            return
 
-        # Convert GUI start/end date + time into real datetimes
+        df_raw = self.load_data(filename)
+        df_ML = data.transform_features(df_raw)
+
+        feature_cols = self.last_feature_cols or [
+            "temperature_2m", "relativehumidity_2m", "dewpoint_2m",
+            "windgusts_10m",
+            "u_10m", "v_10m", "u_100m", "v_100m",
+            "delta_ws",
+            "hour_sin", "hour_cos", "doy_sin", "doy_cos",
+        ]
+
+        # 4. 從 GUI 取得 start/end datetime
         try:
             start_date = datetime.strptime(self.start_date_var.get(), "%Y-%m-%d").date()
             end_date = datetime.strptime(self.end_date_var.get(), "%Y-%m-%d").date()
@@ -406,26 +399,91 @@ class ForecastApp:
 
             if start_dt > end_dt:
                 raise ValueError("Start time cannot be after end time.")
-
         except Exception as e:
             messagebox.showerror("Error", f"Invalid date/time: {e}")
             return
 
-        # Slice the period selected from GUI
-        mask = (time_arr >= start_dt) & (time_arr <= end_dt)
-        if not mask.any():
-            messagebox.showerror("Error", "No test data in the selected time window.")
+        # 5. 用 helper 計算這一段時間的 forecast
+        try:
+            time_arr, y_true, y_pred = self._compute_forecast_for_period(
+                model_name, df_raw, df_ML, start_dt, end_dt, feature_cols
+            )
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
             return
 
-        # Call plotting function
+        if len(time_arr) == 0:
+            messagebox.showerror("Error", "No valid data in the selected window.")
+            return
+
+        # 6. 呼叫純繪圖函式
         fc_plt.forecast_vs_real_plot(
-            time_arr[mask],
-            y_true[mask],
-            y_pred[mask],
+            time_arr,
+            y_true,
+            y_pred,
             title=f"{model_name} Forecast vs Real\n{start_dt} → {end_dt}",
         )
 
 
+    def _compute_forecast_for_period(
+        self,
+        model_name: str,
+        df_raw: pd.DataFrame,
+        df_ML: pd.DataFrame,
+        start_dt: datetime,
+        end_dt: datetime,
+        feature_cols: list[str],
+    ):
+        """
+        Compute one-hour-ahead forecast for a user-selected period and model.
+
+        For ML models:
+            y_true(t+1) = Power_t_plus_1
+            y_pred(t+1) = model( features at time t )
+
+        For persistence baseline:
+            y_true(t+1) = Power_t_plus_1
+            y_pred(t+1) = Power(t)
+        """
+        # 1. Use df_ML["Time"] for slicing because df_ML has already been shifted
+        if "Time" not in df_ML.columns:
+            raise ValueError("Transformed dataframe must contain 'Time' column.")
+
+        mask = (df_ML["Time"] >= start_dt) & (df_ML["Time"] <= end_dt)
+        if not mask.any():
+            raise ValueError("No data available in the selected time window.")
+
+        df_ML_period = df_ML.loc[mask].copy()
+
+        # 2. True values: one-hour-ahead power (already shifted & trimmed in transform_features)
+        if "Power_t_plus_1" not in df_ML_period.columns:
+            raise ValueError("Power_t_plus_1 column is missing in transformed dataframe.")
+
+        y_true = df_ML_period["Power_t_plus_1"].to_numpy()
+        time_arr = df_ML_period["Time"].to_numpy()
+
+        # 3. Predictions depend on model type
+        if model_name == "Persistence baseline":
+            # For persistence, we use current Power(t) as prediction for Power(t+1)
+            if "Power" not in df_ML_period.columns:
+                raise ValueError("Dataframe must contain 'Power' column for persistence baseline.")
+            y_pred = df_ML_period["Power"].to_numpy()
+
+        else:
+            # ML model prediction
+            if model_name not in self.trained_models:
+                raise ValueError(f"Model '{model_name}' has not been trained yet.")
+
+            model = self.trained_models[model_name]
+            y_pred = predict_model(model, df_ML_period, feature_cols)
+
+        # 最後檢查長度是否一致
+        if not (len(time_arr) == len(y_true) == len(y_pred)):
+            raise ValueError(
+                f"Length mismatch: time={len(time_arr)}, y_true={len(y_true)}, y_pred={len(y_pred)}"
+            )
+
+        return time_arr, y_true, y_pred
 
     # ---------- GUI Builders ----------
 
