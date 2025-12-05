@@ -1,51 +1,13 @@
-# 
-
-import pandas as pd
-import numpy as np
-
-def read_csv(path):
-    return pd.read_csv(path)
-
-def mean_angle(U, phi, n):
-    """
-    Calculate the mean angle of a set of directions.
-
-    Use Euler angles to get the mean angle.
-
-    :params array U: Wind wind speed
-    :params array phi: Wind directions in degrees
-    :params array n: power of wind speed in normalization, U^n
-    :returns: The unit vector mean direction of the wind directions
-    """
-    # Convert polar to complex rectangular coordinates, radius of 1
-    rect_dirs = pow(U,n) * np.exp(1j * np.radians(phi))
-
-    # Calculate mean
-    rect_mean = rect_dirs.mean()
-
-    # Convert back to polar space in degrees
-    # Ensuring the result is from 0 - 359
-    mean_dirs = np.mod(np.angle(rect_mean, True), 360)
-
-    return mean_dirs
-
-
-def P03_46W38_data(path):
-    df = read_csv(path)
-    
-
-
-"""
-GUI part
-"""
-
+# Using GUI presenting the all project
 import tkinter as tk
 from tkinter import ttk, messagebox
-from tkcalendar import Calendar  # ✅ 用 Calendar，不用 DateEntry 了
+from tkcalendar import Calendar
 from datetime import datetime, time
 from pathlib import Path
 import pandas as pd
-import matplotlib.pyplot as plt
+from . import forecaster_plot as fc_plt
+from .models import train_random_forest as rf_train
+from . import data
 
 def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
     """
@@ -63,10 +25,12 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
     # cache to store loaded CSVs
     DATA_CACHE: dict[str, pd.DataFrame] = {}
 
+    # Data Files list (csv only in this project)
     def list_csv_files() -> list[str]:
         """List CSV files under the provided inputs directory."""
         return sorted([p.name for p in inputs_dir.glob("*.csv")])
 
+    # Load File-df as dict
     def load_data(filename: str) -> pd.DataFrame:
         """Load CSV with caching."""
         if filename not in DATA_CACHE:
@@ -75,6 +39,7 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
             DATA_CACHE[filename] = df
         return DATA_CACHE[filename]
 
+    # Create Variant List for plotting by filtering as numeric data column
     def get_numeric_columns(df: pd.DataFrame) -> list[str]:
         return df.select_dtypes(include="number").columns.tolist()
 
@@ -82,7 +47,7 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
     time_min = None
     time_max = None
 
-    # ---------------- Helper: 日曆選日期 ---------------- #
+    # ---------------- Helper: Calendar ---------------- #
 
     def open_calendar(target_var: tk.StringVar, initial_date: str | None = None):
         """開一個 Toplevel 月曆視窗，選完日期寫回 target_var"""
@@ -102,7 +67,7 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
         else:
             init_dt = None
 
-        # mindate / maxdate 限制在 CSV 範圍內（如果已載入檔案）
+        # mindate / maxdate is bounded in time range of CSV file (if read)
         mindate = time_min.date() if time_min is not None else None
         maxdate = time_max.date() if time_max is not None else None
 
@@ -132,6 +97,13 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
     # ---------------- GUI Logic Handlers ---------------- #
 
     def on_file_selected(event=None):
+        """
+        Run while a CSV file is selected.
+        ------
+        1. Read file
+        2. Purse initial time and end time
+        3. Set Default time value for GUI column
+        """
         nonlocal time_min, time_max
 
         filename = combo_file.get()
@@ -145,6 +117,7 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
             tmax = df["Time"].max()
             time_min, time_max = tmin, tmax
 
+            # Edit the Time range of file on root window
             label_range_var.set(f"Time range:\n{tmin} → {tmax}")
 
             # update variable dropdown
@@ -155,11 +128,10 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
             else:
                 combo_var.set("")
 
-            # 預設日期：整個 time range
+            # Defaulte Date and Time : From CSV time range
             start_date_var.set(tmin.date().isoformat())
             end_date_var.set(tmax.date().isoformat())
 
-            # 預設時間
             entry_start_hour.delete(0, tk.END)
             entry_start_min.delete(0, tk.END)
             entry_end_hour.delete(0, tk.END)
@@ -168,12 +140,18 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
             entry_start_hour.insert(0, "00")
             entry_start_min.insert(0, "00")
             entry_end_hour.insert(0, "23")
-            entry_end_min.insert(0, "59")
+            entry_end_min.insert(0, "00")
 
         except Exception as e:
             messagebox.showerror("Error loading file", str(e))
 
     def run_plot():
+        """
+        Plot data.
+        ------
+        1. Purse Time(index), error catches.
+        2. Call plot function from forecaster_plot
+        """
         filename = combo_file.get()
         varname = combo_var.get()
 
@@ -215,26 +193,88 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
                 raise ValueError("No data in this time window.")
 
             # plot
-            plt.figure(figsize=(10, 4))
-            plt.plot(sub["Time"], sub[varname], label=varname)
-            plt.xlabel("Time")
-            plt.ylabel(varname)
-            plt.title(f"{filename} – {varname}\n{start_dt} → {end_dt}")
-            plt.grid(True)
-            plt.legend()
-            plt.tight_layout()
-            plt.show()
+            fc_plt.single_var_plot(sub["Time"], sub[varname], xlabel = "Time", ylabel = varname, title = f"{filename} – {varname}\n{start_dt} → {end_dt}")
 
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
-    # ---------------- Build GUI ---------------- #
+    # ---- GUI ML training section ---- 
+    def on_train_random_forest(split_ratio_var, status_var):
+        # validate split ratio 
+        try:
+            split_ratio = float(split_ratio_var.get())
+            if not (0 < split_ratio < 1):
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Error", "split ratio must between 0~1, e.g 0.8.")
+            return
+        
+        # Using CSV chosen for ML
+        filename = combo_file.get()
+        if not filename:
+            messagebox.showerror("Error", "Select CSV files above first.")
+            return
+        df_ML = data.transform_features(load_data(filename))
 
+        # Show simple "progress" info (just text)
+        train_pct = int(split_ratio * 100)
+        test_pct = 100 - train_pct
+        status_var.set(f"Training Random Forest...\n")
+        root.update_idletasks()   # force GUI to refresh text
+
+        # split index
+        split_idx = int(len(df_ML) * split_ratio)
+        train_df = df_ML.iloc[:split_idx].copy()
+        test_df = df_ML.iloc[split_idx:].copy()
+
+        # Assign feature columns for training
+        feature_cols = [
+            # Meteorology / scalar weather
+            "temperature_2m",
+            "relativehumidity_2m",
+            "dewpoint_2m",
+            #"windspeed_10m",
+            #"windspeed_100m",
+            "windgusts_10m",
+
+            # Wind vectors (direction + speed combined)
+            "u_10m",
+            "v_10m",
+            "u_100m",
+            "v_100m",
+
+            # Vertical wind profile info
+            "delta_ws",      # = ws_100m - ws_10m
+
+            # Time features (cyclic)
+            "hour_sin",
+            "hour_cos",
+            "doy_sin",
+            "doy_cos",
+        ]
+        target_col = "Power"
+
+        model, scores = rf_train(train_df, test_df, feature_cols, target_col)
+
+        # Update GUI label with metrics
+        status_var.set(
+            f"Random Forest done.\n"
+            f"Train/Test split: {train_pct}% / {test_pct}%\n"
+            f"MSE : {scores['mse']:.3f}\n"
+            f"MAE : {scores['mae']:.3f}\n"
+            f"RMSE: {scores['rmse']:.3f}"
+        )
+
+
+    # ---------------- Build GUI ---------------- #
+    """
+        GUI main
+    """
     root = tk.Tk()
     root.title("Wind Power Timeseries Viewer")
-    root.geometry("520x440")
+    root.geometry("520x600")
 
-    # file selection frame
+    # ==== 1. File selection frame ====
     frame_file = ttk.LabelFrame(root, text="1. Choose CSV file")
     frame_file.pack(fill="x", padx=10, pady=5)
 
@@ -244,12 +284,13 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
     combo_file.grid(row=0, column=1, padx=5, pady=5)
     combo_file.bind("<<ComboboxSelected>>", on_file_selected)
 
+    # Time range of CSV file (Default statu)
     label_range_var = tk.StringVar(value="Time range: (select a file)")
     ttk.Label(frame_file, textvariable=label_range_var).grid(
         row=1, column=0, columnspan=2, padx=5, pady=5
     )
-
-    # variable selection frame
+    
+    # ==== 2. variable selection frame ====
     frame_var = ttk.LabelFrame(root, text="2. Choose variable")
     frame_var.pack(fill="x", padx=10, pady=5)
 
@@ -257,11 +298,11 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
     combo_var = ttk.Combobox(frame_var, width=30, state="readonly")
     combo_var.grid(row=0, column=1, padx=5, pady=5)
 
-    # date selection frame
+    # ==== 3. date selection frame ====
     frame_time = ttk.LabelFrame(root, text="3. Choose time period")
     frame_time.pack(fill="x", padx=10, pady=5)
 
-    # 用 StringVar 來放日期字串
+    # Carry DateString by StringVar
     start_date_var = tk.StringVar()
     end_date_var = tk.StringVar()
 
@@ -301,10 +342,32 @@ def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
     ttk.Label(frame_time, text=":").grid(row=1, column=5)
     entry_end_min.grid(row=1, column=6, padx=2)
 
-    # plot button
+    # ==== plot button ====
     frame_btn = ttk.Frame(root)
     frame_btn.pack(pady=10)
 
     ttk.Button(frame_btn, text="Plot Timeseries", command=run_plot).pack()
+
+    # ==== 4. Train model ====
+    frame_train = ttk.LabelFrame(root, text="4. Train Machine Learning Model")
+    frame_train.pack(fill="x", padx=10, pady=5)
+
+    ttk.Label(frame_train, text="Train/Test split ratio (0~1):").grid(row=0, column=0, padx=5, pady=5)
+
+    split_ratio_var = tk.StringVar(value="0.8")  # default = 80% training
+    entry_split_ratio = ttk.Entry(frame_train, width=6, textvariable=split_ratio_var)
+    entry_split_ratio.grid(row=0, column=1, padx=5, pady=5)
+
+    ttk.Button(
+        frame_train,
+        text="Train Random Forest",
+        command=lambda: on_train_random_forest(split_ratio_var, train_status_var)
+    ).grid(row=1, column=0, columnspan=2, pady=10)
+
+    # Status label for showing "progress" and metrics
+    train_status_var = tk.StringVar(value="No model trained yet.")
+    label_status = ttk.Label(frame_train, textvariable=train_status_var, justify="left")
+    label_status.grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+    
 
     root.mainloop()
