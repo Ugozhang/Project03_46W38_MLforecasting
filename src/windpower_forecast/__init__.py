@@ -6,3 +6,4 @@ from . import forecaster
 from . import metrics
 from . import models
 from . import data
+from . import GUI

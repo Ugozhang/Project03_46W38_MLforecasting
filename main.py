@@ -12,4 +12,4 @@ traning_data_path = main_dir / "inputs" / "Location1.csv"
 #df = src.windpower_forecast.forecaster_io.read_csv(traning_data_path)
 #print(df)
 
-src.windpower_forecast.forecaster_io.launch_gui(input_folder_path)
+src.windpower_forecast.GUI.launch_gui(input_folder_path)
