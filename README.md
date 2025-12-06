@@ -9,7 +9,6 @@ It includes:
 * a complete example workflow for evaluation  
 
 This project reads the datasets supplied for Project03, processes the time-series data, and provides a GUI-based environment that runs fixed machine learning forecasting models, while keeping the code structure extensible for future model additions.  
----
 
 ## Project Structure
 
@@ -206,10 +205,9 @@ Runtime is well under the required **10 minutes**.
 Tests function wasn't implemented.
 
 ---
-
-````markdown
 ## Dependencies
 
+````markdown
 This project requires the following third-party Python libraries:
 
 - numpy
