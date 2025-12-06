@@ -97,7 +97,16 @@ Implemented in `GUI.py`:
 
 ```mermaid
 classDiagram
-    %% === GUI / Application ===
+
+    %% ========= Entry / GUI =========
+    class Main_py {
+        +main()
+    }
+
+    class GUI_py {
+        +launch_GUI()
+    }
+
     class ForecastApp {
         +build_file_frame()
         +build_var_frame()
@@ -105,72 +114,75 @@ classDiagram
         +build_ml_frame()
         +on_file_selected(filename)
         +on_train_button_clicked()
+        +_train_model_worker(...)
         +_on_train_done(models)
         +_on_train_error(error)
     }
 
-    class GUI_py {
-        +launch_GUI()
-    }
-
-    GUI_py --> ForecastApp : creates
-
-    %% === Data / Feature engineering ===
+    %% ========= Data layer (data.py) =========
     class DataModule {
-        +read_csv(path) df
-        +transform_features(df) df_features
-        +train_test_split_time(df) X_train/X_test
+        +read_csv(path)
+        +transform_features(df)
+        +train_test_split_time(df)
     }
 
-    %% === Plotting ===
-    class ForecasterPlot {
+    %% ========= Plot layer (forecaster_plot.py) =========
+    class PlotModule {
         +single_var_plot(df, var, t0, t1)
-        +multi_forecast_vs_real_plot(df,\n models, predictions)
+        +multi_forecast_vs_real_plot(y_true, y_pred_list)
     }
 
-    %% === ML trainer hierarchy ===
+    %% ========= Models layer (models.py) =========
+    class ModelsModule {
+        +MODEL_TRAINERS : dict
+        +get_available_trainers()
+    }
+
+    %% ---- Trainer hierarchy inside models.py ----
     class BaseModelTrainer {
         <<abstract>>
-        +name: str
+        +name : str
         +build_model(params)
         +fit(X_train, y_train)
-        +predict(X)
+        +predict(X_test)
     }
 
-    class RFTrainer {
+    class RFModelTrainer {
         +build_model(params)
         +fit(...)
         +predict(...)
     }
 
-    class SVMTrainer {
+    class SVMModelTrainer {
         +build_model(params)
         +fit(...)
         +predict(...)
     }
 
-    class MLPTrainer {
+    class MLPModelTrainer {
         +build_model(params)
         +fit(...)
         +predict(...)
     }
 
-    BaseModelTrainer <|-- RFTrainer
-    BaseModelTrainer <|-- SVMTrainer
-    BaseModelTrainer <|-- MLPTrainer
+    %% ========= Inheritance =========
+    BaseModelTrainer <|-- RFModelTrainer
+    BaseModelTrainer <|-- SVMModelTrainer
+    BaseModelTrainer <|-- MLPModelTrainer
 
-    class ModelsModule {
-        +MODEL_TRAINERS: list[BaseModelTrainer]
-        +get_trainers()
-    }
+    %% ========= Relationships (who uses whom) =========
+    Main_py --> GUI_py : calls
+    GUI_py --> ForecastApp : creates
 
-    %% === Relationships ===
     ForecastApp o-- DataModule : uses
-    ForecastApp o-- ForecasterPlot : plotting
-    ForecastApp o-- ModelsModule : requests\nMODEL_TRAINERS
-    ModelsModule o-- BaseModelTrainer : contains
+    ForecastApp o-- PlotModule : uses
+    ForecastApp o-- ModelsModule : uses
 
-    %% Optional: show that ForecastApp calls trainers to predict
+    ModelsModule o-- BaseModelTrainer : defines
+    ModelsModule o-- RFModelTrainer : contains
+    ModelsModule o-- SVMModelTrainer : contains
+    ModelsModule o-- MLPModelTrainer : contains
+
     ForecastApp ..> BaseModelTrainer : train()/predict()
 
 ```
