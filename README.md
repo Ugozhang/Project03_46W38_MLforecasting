@@ -1,6 +1,6 @@
 # Wind Power Forecasting with Machine Learning (Project03 in 46W38)
 
-<img src="outputs/GUI_demonstration.jpg" width="600">
+<img src="outputs/GUI_demonstration.jpg" width="1000">
 
 This project implements a modular, GUI visualized, reusable Python package for machine-learning forecasting.  
 It includes:
