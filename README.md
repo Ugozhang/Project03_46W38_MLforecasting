@@ -100,13 +100,9 @@ flowchart TD
 
 A[main.py] --> B[GUI.py]
 
-A --> C[models.py]
-A --> D[forecaster_plot.py]
-A --> E[data.py]
-
-B --> C
-B --> D
-B --> E
+B --> C[models.py]
+B --> D[forecaster_plot.py]
+B --> E[data.py]
 
 C --> D
 
