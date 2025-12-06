@@ -96,22 +96,148 @@ Implemented in `GUI.py`:
 ## Architecture Diagram 
 
 ```mermaid
-flowchart TD
+classDiagram
+    %% === GUI / Application ===
+    class ForecastApp {
+        +build_file_frame()
+        +build_var_frame()
+        +build_time_frame()
+        +build_ml_frame()
+        +on_file_selected(filename)
+        +on_train_button_clicked()
+        +_on_train_done(models)
+        +_on_train_error(error)
+    }
 
-A[main.py] --> B[GUI.py]
+    class GUI_py {
+        +launch_GUI()
+    }
 
-B --> C[models.py]
-B --> D[forecaster_plot.py]
-B --> E[data.py]
+    GUI_py --> ForecastApp : creates
 
-C --> D
+    %% === Data / Feature engineering ===
+    class DataModule {
+        +read_csv(path) df
+        +transform_features(df) df_features
+        +train_test_split_time(df) X_train/X_test
+    }
 
-subgraph windpower_forecast package
-    C
-    D
-    E
-    B
-end
+    %% === Plotting ===
+    class ForecasterPlot {
+        +single_var_plot(df, var, t0, t1)
+        +multi_forecast_vs_real_plot(df,\n models, predictions)
+    }
+
+    %% === ML trainer hierarchy ===
+    class BaseModelTrainer {
+        <<abstract>>
+        +name: str
+        +build_model(params)
+        +fit(X_train, y_train)
+        +predict(X)
+    }
+
+    class RFTrainer {
+        +build_model(params)
+        +fit(...)
+        +predict(...)
+    }
+
+    class SVMTrainer {
+        +build_model(params)
+        +fit(...)
+        +predict(...)
+    }
+
+    class MLPTrainer {
+        +build_model(params)
+        +fit(...)
+        +predict(...)
+    }
+
+    BaseModelTrainer <|-- RFTrainer
+    BaseModelTrainer <|-- SVMTrainer
+    BaseModelTrainer <|-- MLPTrainer
+
+    class ModelsModule {
+        +MODEL_TRAINERS: list[BaseModelTrainer]
+        +get_trainers()
+    }
+
+    %% === Relationships ===
+    ForecastApp o-- DataModule : uses
+    ForecastApp o-- ForecasterPlot : plotting
+    ForecastApp o-- ModelsModule : requests\nMODEL_TRAINERS
+    ModelsModule o-- BaseModelTrainer : contains
+
+    %% Optional: show that ForecastApp calls trainers to predict
+    ForecastApp ..> BaseModelTrainer : train()/predict()
+
+```
+```mermaid
+sequenceDiagram
+    actor User
+    participant main_py as main.py
+    participant GUI_py as GUI.py
+    participant App as ForecastApp
+    participant Data as data.py
+    participant Plot as forecaster_plot.py
+    participant Models as models.py
+
+    User->>main_py: run main.py
+    main_py->>GUI_py: launch_GUI()
+    GUI_py->>App: create ForecastApp(root)
+
+    activate App
+    App->>App: build_file_frame()
+    App->>App: build_var_frame()
+    App->>App: build_time_frame()
+    App->>App: build_ml_frame()
+
+    Note over App: File selected in build_file_frame
+    User->>App: select CSV in file combobox
+    App->>Data: read_csv(filename)
+    Data-->>App: df (data, time interval, columns)
+    App->>App: on_file_selected(df)\n- detect time interval\n- read columns
+    App->>App: update calendar\nand variable widgets
+
+    Note over App,Plot: Single variable plotting
+    User->>App: choose var & time range
+    App->>Plot: single_var_plot(df, var,\nstart_time, end_time)
+
+    Note over App,Models: Build ML model selection
+    App->>Models: MODEL_TRAINERS (request list)
+    Models-->>App: list of available trainers
+
+    Note over App: User clicks "Train"
+    User->>App: click Train button
+    App->>App: on_train_button_clicked()
+    App->>Data: transform_features(df)
+    Data-->>App: df_features
+    App->>Data: train_test_split_time(df_features)
+    Data-->>App: X_train, X_test, y_train, y_test
+
+    Note over App,Models: Background training
+    App->>App: _train_model_worker(...)
+    App->>Models: _train_model_worker(\n  selected_models,\n  X_train, y_train,\n  params\n)
+    activate Models
+    Models->>Models: for trainer in MODEL_TRAINERS:\n  build_model(params)\n  fit(X_train, y_train)
+    Models-->>App: trained_models
+    deactivate Models
+
+    alt training success
+        App->>App: _on_train_done(trained_models)
+    else training error
+        App->>App: _on_train_error(error)
+    end
+
+    Note over App,Models: Forecast and compare
+    App->>Models: predict(X_test)
+    Models-->>App: y_pred list (per model)
+    Note over App,Plot: Plot forecasts vs real
+    App->>Plot: multi_forecast_vs_real_plot(\n y_true, y_pred_list, models\n)
+    deactivate App
+
 ```
 
 **Explanation of relationships**
