@@ -350,31 +350,25 @@ class ForecastApp:
     def plot_forecast_vs_real(self):
         """
         Plot predicted one-hour-ahead power output against the real measured power
-        for the selected time window and one of the trained models.
+        for the selected time window and ALL trained models.
 
         - Site is defined by the selected CSV file.
         - Period is defined by Step 3 (start/end date & time).
-        - Model is chosen among trained models (prefer SVM if available).
+        - Models: all entries in self.trained_models (e.g. Persistence, RF, SVM, MLP).
         """
 
-        # 1. 確認有訓練過至少一個模型
+        # 1. Check that at least one model has been trained
         if not self.trained_models:
             messagebox.showerror("Error", "Please train at least one model first.")
             return
 
-        # 2. 選一個要畫的模型：優先 SVM，否則拿第一個
-        preferred = "Support Vector Machine"
-        if preferred in self.trained_models:
-            model_name = preferred
-        else:
-            model_name = next(iter(self.trained_models.keys()))
-
-        # 3. 讀資料 + 特徵轉換
+        # 2. File selection
         filename = self.combo_file.get()
         if not filename:
             messagebox.showerror("Error", "Please select a CSV file.")
             return
 
+        # 3. Load data and transform features
         df_raw = self.load_data(filename)
         df_ML = data.transform_features(df_raw)
 
@@ -386,7 +380,7 @@ class ForecastApp:
             "hour_sin", "hour_cos", "doy_sin", "doy_cos",
         ]
 
-        # 4. 從 GUI 取得 start/end datetime
+        # 4. Get start/end datetime from GUI
         try:
             start_date = datetime.strptime(self.start_date_var.get(), "%Y-%m-%d").date()
             end_date = datetime.strptime(self.end_date_var.get(), "%Y-%m-%d").date()
@@ -403,27 +397,47 @@ class ForecastApp:
             messagebox.showerror("Error", f"Invalid date/time: {e}")
             return
 
-        # 5. 用 helper 計算這一段時間的 forecast
-        try:
-            time_arr, y_true, y_pred = self._compute_forecast_for_period(
-                model_name, df_raw, df_ML, start_dt, end_dt, feature_cols
-            )
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+        # 5. Loop over all trained models and compute forecasts
+        base_time = None
+        base_y_true = None
+        y_pred_dict: dict[str, np.ndarray] = {}
+
+        for model_name in self.trained_models.keys():
+            try:
+                time_arr, y_true, y_pred = self._compute_forecast_for_period(
+                    model_name, df_raw, df_ML, start_dt, end_dt, feature_cols
+                )
+            except Exception as e:
+                # If a model fails (e.g. no data in window), skip it
+                messagebox.showwarning("Warning", f"Skipping {model_name}: {e}")
+                continue
+
+            if base_time is None:
+                # First successful model: set the reference time and y_true
+                base_time = time_arr
+                base_y_true = y_true
+            else:
+                # Ensure same length for all models
+                if len(time_arr) != len(base_time):
+                    raise ValueError(
+                        f"Time length mismatch between models. "
+                        f"{model_name} has {len(time_arr)} points, "
+                        f"reference has {len(base_time)}."
+                    )
+
+            y_pred_dict[model_name] = y_pred
+
+        if not y_pred_dict:
+            messagebox.showerror("Error", "No valid forecasts available in the selected time window.")
             return
 
-        if len(time_arr) == 0:
-            messagebox.showerror("Error", "No valid data in the selected window.")
-            return
-
-        # 6. 呼叫純繪圖函式
-        fc_plt.forecast_vs_real_plot(
-            time_arr,
-            y_true,
-            y_pred,
-            title=f"{model_name} Forecast vs Real\n{start_dt} → {end_dt}",
+        # 6. Plot all models vs real
+        fc_plt.multi_forecast_vs_real_plot(
+            base_time,
+            base_y_true,
+            y_pred_dict,
+            title=f"Forecast vs Real ({', '.join(y_pred_dict.keys())})\n{start_dt} → {end_dt}",
         )
-
 
     def _compute_forecast_for_period(
         self,
