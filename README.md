@@ -7,6 +7,7 @@ It includes:
 * plotting functions
 * a graphical user interface (GUI)
 * a complete example workflow for evaluation  
+
 This project reads the datasets supplied for Project03, processes the time-series data, and provides a GUI-based environment that runs fixed machine learning forecasting models, while keeping the code structure extensible for future model additions.  
 ---
 
@@ -46,7 +47,7 @@ Project03_46W38_MLforecasting
  ┣ main.py
  ┗ README.md
 ```  
-`inputs/` contains the provided CSV datasets.
+`inputs/` contains the provided CSV datasets.  
 `src/windpower_forecast/` contains the entire package implementation.
 
 ---
@@ -55,12 +56,12 @@ Project03_46W38_MLforecasting
 
 The `windpower_forecast` package provides tools for:
 
-### Data Processing
+**Data Processing**  
 
 * Time-based splitting of datasets for training and testing in time-series forecasting
 * Vectorization of wind direction and generation of time-related features
 
-### Forecasting Models
+**Forecasting Models**  
 
 Implemented inside `models.py`:
 
@@ -70,7 +71,7 @@ Implemented inside `models.py`:
 * Other scikit-learn based regressors
 * Standardized interface for training & prediction
 
-### ✔ Plotting
+**Plotting**  
 
 Implemented inside `forecaster_plot.py`:
 
@@ -78,7 +79,7 @@ Implemented inside `forecaster_plot.py`:
 * multiple-model comparison in a single figure
 * configurable titles, legends, and time axes
 
-### ✔ GUI Tool (optional feature)
+**GUI Tool (optional feature)**  
 
 Implemented in `GUI.py`:
 
@@ -91,7 +92,7 @@ Implemented in `GUI.py`:
 
 ---
 
-# 🏗 **Architecture Diagram**
+## Architecture Diagram 
 
 ```mermaid
 flowchart TD
@@ -132,9 +133,9 @@ end
 
 The project contains multiple classes (requirement satisfied). Key classes include:
 
----
+* * *
 
-### `class BaseModelTrainer`
+**`class BaseModelTrainer`**
 
 *File:* `models.py`
 
@@ -146,25 +147,25 @@ Defines the standard interface for all forecasting models.
 * `predict(X)`
 * `evaluate(y_true, y_pred)`
 
----
+* * *
 
-### `class SVRForecaster(BaseModel)`
+**`class SVRForecaster(BaseModel)`**
 
 *File:* `models.py`
 
 Implements a Support Vector Regression model for time-series forecasting.
 
----
+* * *
 
-### `class RandomForestForecaster(BaseModel)`
+**`class RandomForestForecaster(BaseModel)`**
 
 *File:* `models.py`
 
 Implements a Random Forest model suitable for nonlinear forecasting.
 
----
+* * *
 
-### GUI Class — `class ForecastGUI`
+**GUI Class — `class ForecastGUI`**
 
 *File:* `GUI.py`
 
@@ -177,8 +178,6 @@ Features:
 * train/test split
 * buttons to train models and visualize results
 * auto-plotting of forecast outputs
-
----
 
 ## How to Run (Evaluation Script)
 
