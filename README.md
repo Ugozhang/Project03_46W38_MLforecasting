@@ -241,3 +241,8 @@ This project delivers a full wind-power time-series forecasting pipeline, includ
 * example script for evaluation
 
 ---
+
+# Scope
+
+* Provide GUI access to machine learning parameters used during model training
+* Analyze and compare the contribution of each feature column to the forecasting results
