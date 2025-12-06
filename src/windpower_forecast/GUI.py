@@ -47,9 +47,8 @@ class ForecastApp:
         self.root.geometry("520x800")
 
         self.build_file_frame()
-        self.build_var_frame()
         self.build_time_frame()
-        self.build_plot_button()
+        self.build_var_frame()
         self.build_ml_frame()
 
         self.root.mainloop()
@@ -527,15 +526,19 @@ class ForecastApp:
         )
 
     def build_var_frame(self):
-        frame = ttk.LabelFrame(self.root, text="2. Choose variable")
+        frame = ttk.LabelFrame(self.root, text="3. Choose variable")
         frame.pack(fill="x", padx=10, pady=5)
 
         ttk.Label(frame, text="Variable:").grid(row=0, column=0, padx=5, pady=5)
         self.combo_var = ttk.Combobox(frame, width=30, state="readonly")
         self.combo_var.grid(row=0, column=1, padx=5, pady=5)
+        # Plot button
+        ttk.Button(frame, text="Plot Timeseries", command=self.run_plot).grid(
+            row=0, column=2, padx=5, pady=5, sticky="e"
+        )
 
     def build_time_frame(self):
-        frame = ttk.LabelFrame(self.root, text="3. Choose time period")
+        frame = ttk.LabelFrame(self.root, text="2. Choose time period")
         frame.pack(fill="x", padx=10, pady=5)
 
         self.start_date_var = tk.StringVar()
@@ -574,11 +577,6 @@ class ForecastApp:
         self.entry_end_hour.grid(row=1, column=4)
         ttk.Label(frame, text=":").grid(row=1, column=5)
         self.entry_end_min.grid(row=1, column=6)
-
-    def build_plot_button(self):
-        frame = ttk.Frame(self.root)
-        frame.pack(pady=10)
-        ttk.Button(frame, text="Plot Timeseries", command=self.run_plot).pack()
 
     def build_ml_frame(self):
         frame = ttk.LabelFrame(self.root, text="4. Train Machine Learning Model")
