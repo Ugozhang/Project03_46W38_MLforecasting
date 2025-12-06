@@ -261,7 +261,6 @@ class ForecastApp:
 
     def _train_model_worker(self, filename: str, split_ratio: float, model_names: list[str]):
         """Run ML training in a background thread, then hand results back to the GUI thread."""
-        print(model_names)
         try:
             # load & transform
             df_raw = self.load_data(filename)
@@ -507,13 +506,13 @@ class ForecastApp:
         # Folder selector
         ttk.Label(frame, text="Folder:").grid(row=0, column=0, padx=5, pady=5)
         self.folder_var = tk.StringVar(value=str(self.inputs_dir))
-        folder_entry = ttk.Entry(frame, textvariable=self.folder_var, width=35)
-        folder_entry.grid(row=0, column=1, padx=5, pady=5)
+        folder_entry = ttk.Entry(frame, textvariable=self.folder_var, width=40)
+        folder_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
         #Browse folder button
-        ttk.Button(frame, text="...", command=self.select_folder).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(frame, text="...", command=self.select_folder, width=6).grid(row=0, column=2, padx=0, pady=5, sticky="e")
 
         # CSV selector
-        ttk.Label(frame, text="CSV file:").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Label(frame, text="CSV file:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
 
         self.combo_file = ttk.Combobox(frame, width=40, state="readonly")
         self.combo_file["values"] = self.list_csv_files()
@@ -522,7 +521,7 @@ class ForecastApp:
 
         self.label_range_var = tk.StringVar(value="Time range: (select a file)")
         ttk.Label(frame, textvariable=self.label_range_var).grid(
-            row=2, column=0, columnspan=3, padx=5, pady=5
+            row=2, column=1, padx=5, pady=2, sticky="w"
         )
 
     def build_var_frame(self):
@@ -530,7 +529,7 @@ class ForecastApp:
         frame.pack(fill="x", padx=10, pady=5)
 
         ttk.Label(frame, text="Variable:").grid(row=0, column=0, padx=5, pady=5)
-        self.combo_var = ttk.Combobox(frame, width=30, state="readonly")
+        self.combo_var = ttk.Combobox(frame, width=40, state="readonly")
         self.combo_var.grid(row=0, column=1, padx=5, pady=5)
         # Plot button
         ttk.Button(frame, text="Plot Timeseries", command=self.run_plot).grid(
@@ -550,7 +549,7 @@ class ForecastApp:
         entry.grid(row=0, column=1, padx=5, pady=5)
 
         ttk.Button(
-            frame, text="Pick",
+            frame, text="Pick", width=9, 
             command=lambda: self.open_calendar(self.start_date_var, self.start_date_var.get())
         ).grid(row=0, column=2, padx=5)
 
@@ -567,7 +566,7 @@ class ForecastApp:
         entry.grid(row=1, column=1, padx=5, pady=5)
 
         ttk.Button(
-            frame, text="Pick",
+            frame, text="Pick", width=9, 
             command=lambda: self.open_calendar(self.end_date_var, self.end_date_var.get())
         ).grid(row=1, column=2, padx=5)
 
