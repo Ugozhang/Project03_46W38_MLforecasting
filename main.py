@@ -1,15 +1,15 @@
-import pandas as pd
-import src.windpower_forecast
+# Project03_46W38_MLforecasting/main.py
+
 from pathlib import Path
+from src.windpower_forecast.main import run
 
-# Make sure running under same folder each time by calling the path where main.py it is
-main_dir = Path(__file__).resolve().parent
+def main():
+    project_root = Path(__file__).resolve().parent
+    inputs_dir = project_root / "inputs"
+    outputs_dir = project_root / "outputs"
+    outputs_dir.mkdir(exist_ok=True)
 
-# Data path
-input_folder_path = main_dir / "inputs"
-traning_data_path = main_dir / "inputs" / "Location1.csv"
+    run(inputs_dir=inputs_dir, outputs_dir=outputs_dir)
 
-#df = src.windpower_forecast.forecaster_io.read_csv(traning_data_path)
-#print(df)
-
-src.windpower_forecast.GUI.launch_gui(input_folder_path)
+if __name__ == "__main__":
+    main()

@@ -1,15 +1,6 @@
 # src/windpower_forecast/main.py
 
-from pathlib import Path
-
-def _resolve_default_paths():
-    base = Path(__file__).resolve().parents[1]
-    inputs = base / "inputs"
-    outputs = base / "outputs"
-    outputs.mkdir(exist_ok=True)
-    return inputs, outputs
-
-def run():
+def run(inputs_dir=None, outputs_dir=None):
     # Check tkinter
     try:
         import tkinter  # noqa
@@ -21,8 +12,6 @@ def run():
         )
 
     from .GUI import ForecastApp
-
-    inputs_dir, outputs_dir = _resolve_default_paths()
 
     app = ForecastApp(inputs_dir=inputs_dir, outputs_dir=outputs_dir)
     app.run()
