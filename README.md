@@ -12,6 +12,18 @@ It includes:
 
 This project reads the datasets supplied for Project03, processes the time-series data, and provides a GUI-based environment that runs fixed machine learning forecasting models, while keeping the code structure extensible for future model additions.  
 
+## Linux (Ubuntu) extra dependency  
+
+This project uses `tkinter` for the GUI. On many Ubuntu systems,
+`tkinter` is not installed by default.
+
+Before installing this package, please run:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3-tk
+```
+
 ## Project Structure
 
 ```

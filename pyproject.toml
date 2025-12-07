@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "windpower-forecast"
-version = "0.1.0"
+version = "0.1.1"
 description = "GUI-based wind power ML forecasting tool for DTU 46W38 Project03"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,6 +31,9 @@ dev = [
   "pytest-cov",
 ]
 
+[project.scripts]
+windpower-forecast = "windpower_forecast.main:run"
+
 [project.urls]
 Homepage = "https://github.com/Ugozhang"
 Repository = "https://github.com/Ugozhang/Project03_46W38_MLforecasting"
@@ -38,3 +41,7 @@ Repository = "https://github.com/Ugozhang/Project03_46W38_MLforecasting"
 [tool.hatch.build]
 packages = ["src/windpower_forecast"]
 
+# include non-python resource such as CSV
+include = [
+  "inputs/*"
+]

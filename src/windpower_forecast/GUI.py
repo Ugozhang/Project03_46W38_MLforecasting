@@ -17,7 +17,7 @@ class ForecastApp:
     A clean OOP-based GUI app for time-series viewing and ML forecasting.
     """
 
-    def __init__(self, inputs_dir: Path, outputs_dir: Path | None = None):
+    def __init__(self, inputs_dir: Path | None = None, outputs_dir: Path | None = None):
         # store paths
         self.inputs_dir = inputs_dir
         self.outputs_dir = outputs_dir
