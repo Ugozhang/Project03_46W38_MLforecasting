@@ -46,12 +46,21 @@ class ForecastApp:
         self.root.title("Wind Power Timeseries Viewer")
         self.root.geometry("520x800")
 
+        # Trigger _on_close while window is closed
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
         self.build_file_frame()
         self.build_time_frame()
         self.build_var_frame()
         self.build_ml_frame()
 
+    def run(self):
+        """Start the Tkinter main loop."""
         self.root.mainloop()
+
+    def _on_close(self):
+        # 讓 Tkinter 乾淨地退出
+        self.root.destroy()
 
     # ---------- Data helpers ----------
 
@@ -630,5 +639,5 @@ class ForecastApp:
 
 
 # ------- Public function called by main.py -------
-def launch_gui(inputs_dir: Path, outputs_dir: Path | None = None):
-    ForecastApp(inputs_dir, outputs_dir)
+def launch_gui(inputs_dir: Path | None = None, outputs_dir: Path | None = None):
+    ForecastApp(inputs_dir, outputs_dir).run()
