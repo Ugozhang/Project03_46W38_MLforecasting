@@ -1,22 +1,28 @@
 # src/windpower_forecast/main.py
 
-def _check_tkinter():
-    try:
-        import tkinter  # noqa: F401
-    except ImportError as e:
-        msg = (
-            "tkinter is not installed.\n\n"
-            "If you are using Ubuntu/Debian, please install it with:\n"
-            "  sudo apt-get install python3-tk\n\n"
-            "After that, try running the program again."
-        )
-        raise ImportError(msg) from e
+from pathlib import Path
 
+def _resolve_default_paths():
+    base = Path(__file__).resolve().parents[1]
+    inputs = base / "inputs"
+    outputs = base / "outputs"
+    outputs.mkdir(exist_ok=True)
+    return inputs, outputs
 
 def run():
-    _check_tkinter()
+    # Check tkinter
+    try:
+        import tkinter  # noqa
+    except ImportError:
+        raise ImportError(
+            "tkinter is not installed.\n"
+            "On Ubuntu run:\n"
+            "  sudo apt-get install python3-tk"
+        )
 
-    from .GUI import ForecastApp  # import after checking tkinter
+    from .GUI import ForecastApp
 
-    app = ForecastApp()
+    inputs_dir, outputs_dir = _resolve_default_paths()
+
+    app = ForecastApp(inputs_dir=inputs_dir, outputs_dir=outputs_dir)
     app.run()

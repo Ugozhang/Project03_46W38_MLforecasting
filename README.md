@@ -36,6 +36,17 @@ Project03_46W38_MLforecasting
  ┃ ┣ Location4.csv
  ┃ ┗ readme.txt
  ┣ outputs
+ ┃ ┗ GUI_demonstration.jpg
+ ┣ report
+ ┃ ┣ figs
+ ┃ ┃ ┣ class_diagram.png
+ ┃ ┃ ┣ class_diagram.svg
+ ┃ ┃ ┣ GUI_demonstration.jpg
+ ┃ ┃ ┣ models_diagram.svg
+ ┃ ┃ ┣ sequence_diagram.png
+ ┃ ┃ ┗ sequence_diagram.svg
+ ┃ ┣ report.md
+ ┃ ┗ report.pdf
  ┣ src
  ┃ ┗ windpower_forecast
  ┃ ┃ ┣ __pycache__
@@ -50,6 +61,7 @@ Project03_46W38_MLforecasting
  ┃ ┃ ┣ data.py
  ┃ ┃ ┣ forecaster_plot.py
  ┃ ┃ ┣ GUI.py
+ ┃ ┃ ┣ main.py
  ┃ ┃ ┣ models.py
  ┃ ┃ ┣ tempCodeRunnerFile.py
  ┃ ┃ ┗ __init__.py
@@ -58,7 +70,9 @@ Project03_46W38_MLforecasting
  ┣ .gitignore
  ┣ LICENSE
  ┣ main.py
- ┗ README.md
+ ┣ pyproject.toml
+ ┣ README.md
+ ┗ tempCodeRunnerFile.py
 ```  
 `inputs/` contains the provided CSV datasets.  
 `src/windpower_forecast/` contains the entire package implementation.
